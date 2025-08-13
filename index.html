@@ -1,0 +1,1498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Foundry: AI Windowing Exosuit v2.1 (Complete System)</title>
+    <style>
+        :root {
+            --bg-color: #1a1a1a; --window-bg: #2a2a2e; --header-bg: #3c3c3c;
+            --text-color: #f0f0f0; --accent-color: #4a90e2; --border-color: #444; --input-bg: #1e1e1e;
+            --success-color: #4caf50; --error-color: #f44336; --warning-color: #ff9800;
+        }
+        html, body { margin: 0; padding: 10px; width: 100vw; height: 100vh; font-family: Arial, sans-serif; background-color: var(--bg-color); color: var(--text-color); box-sizing: border-box; overflow: auto; }
+        #app-container { position: relative; width: 100%; min-height: 100vh; }
+        #controls { position: fixed; top: 10px; left: 10px; z-index: 10000; display: flex; gap: 8px; flex-wrap: wrap; }
+        .control-btn { background-color: var(--accent-color); color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; font-size: 14px; }
+        .control-btn:hover { background-color: #357abd; }
+        .control-btn.setup { background-color: var(--warning-color); }
+        .control-btn.setup:hover { background-color: #f57c00; }
+        .control-btn.debug { background-color: #9c27b0; }
+        .control-btn.debug:hover { background-color: #7b1fa2; }
+        .control-btn.start { background-color: #2e7d32; }
+        .control-btn.start:hover { background-color: #1b5e20; }
+        
+        .window { position: absolute; background-color: var(--window-bg); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); min-width: 320px; min-height: 200px; max-width: calc(100vw - 20px); display: flex; flex-direction: column; resize: both; overflow: auto; }
+        .window.focused { border-color: var(--accent-color); }
+        .window-header { background-color: var(--header-bg); padding: 8px; cursor: move; display: flex; justify-content: space-between; align-items: center; user-select: none; }
+        .window-title { font-weight: bold; }
+        .window-controls { display: flex; gap: 5px; }
+        .window-controls button { background: none; border: none; color: var(--text-color); cursor: pointer; font-size: 14px; padding: 5px; border-radius: 3px; }
+        .window-controls button:hover { background-color: rgba(255,255,255,0.1); }
+        .window-content { flex-grow: 1; padding: 15px; overflow: auto; display: flex; flex-direction: column; }
+        
+        .setup-window .window-content { gap: 15px; }
+        .input-group { display: flex; flex-direction: column; gap: 5px; }
+        .input-group label { font-weight: bold; color: var(--text-color); }
+        .input-group input { background-color: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); border-radius: 4px; padding: 8px; font-family: inherit; }
+        .input-group input:focus { border-color: var(--accent-color); outline: none; }
+        .input-group small { color: #aaa; font-size: 12px; }
+        .input-group small a { color: var(--accent-color); }
+        
+        .status { padding: 10px; border-radius: 5px; margin: 10px 0; font-weight: bold; }
+        .status.success { background: rgba(76, 175, 80, 0.2); color: var(--success-color); border: 1px solid var(--success-color); }
+        .status.error { background: rgba(244, 67, 54, 0.2); color: var(--error-color); border: 1px solid var(--error-color); }
+        .status.info { background: rgba(74, 144, 226, 0.2); color: var(--accent-color); border: 1px solid var(--accent-color); }
+        
+        .prompt-area { display: flex; flex-direction: column; gap: 10px; margin-bottom: 15px; }
+        .prompt-area textarea { background-color: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); border-radius: 4px; padding: 8px; font-family: inherit; min-height: 80px; resize: vertical; }
+        .prompt-area textarea:focus { border-color: var(--accent-color); outline: none; }
+        .generate-btn { background-color: var(--success-color); color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; align-self: flex-end; font-size: 14px; }
+        .generate-btn:hover { background-color: #45a049; }
+        .generate-btn:disabled { background-color: #666; cursor: not-allowed; }
+        .finalize-btn { background-color: var(--accent-color); color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 14px; margin-left: 10px; }
+        .finalize-btn:hover { background-color: #357abd; }
+        .reset-btn { background-color: var(--warning-color); color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 14px; margin-left: 10px; }
+        .reset-btn:hover { background-color: #f57c00; }
+        
+        .output-container { flex-grow: 1; border-top: 1px solid var(--border-color); padding-top: 15px; min-height: 200px; }
+        .output-container.loading { display: flex; align-items: center; justify-content: center; color: #888; font-style: italic; }
+        .output-container.finalized { border-top: none; padding-top: 0; }
+        
+        .window.collapsed .window-content { display: none; }
+        .window.collapsed { height: auto !important; min-height: auto !important; }
+        .window.finalized .prompt-area { display: none; }
+        .window.finalized .output-container { border-top: none; padding-top: 15px; }
+        
+        /* Chat Interface Styles */
+        .chat-toggle-btn { background-color: #9c27b0; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 14px; margin-left: 10px; }
+        .chat-toggle-btn:hover { background-color: #7b1fa2; }
+        .chat-toggle-btn.active { background-color: #e91e63; }
+        
+        .chat-panel { display: none; border-top: 1px solid var(--border-color); background: var(--input-bg); }
+        .chat-panel.active { display: flex; flex-direction: column; height: 200px; }
+        
+        .chat-messages { flex: 1; overflow-y: auto; padding: 10px; font-size: 12px; line-height: 1.4; }
+        .chat-message { margin-bottom: 10px; padding: 8px; border-radius: 6px; max-width: 80%; }
+        .chat-message.user { background: rgba(74, 144, 226, 0.2); margin-left: auto; text-align: right; }
+        .chat-message.ai { background: rgba(76, 175, 80, 0.2); margin-right: auto; }
+        .chat-message .sender { font-weight: bold; font-size: 10px; opacity: 0.8; margin-bottom: 4px; }
+        
+        .chat-input-area { padding: 8px; border-top: 1px solid var(--border-color); display: flex; gap: 8px; }
+        .chat-input { flex: 1; background: var(--window-bg); color: var(--text-color); border: 1px solid var(--border-color); border-radius: 4px; padding: 6px; font-size: 12px; resize: none; }
+        .chat-send-btn { background: var(--success-color); color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+        .chat-send-btn:hover { background: #45a049; }
+        .chat-send-btn:disabled { background: #666; cursor: not-allowed; }
+        
+        /* Global Chat Area */
+        .global-chat { position: fixed; right: 10px; top: 10px; width: 350px; height: 400px; background: var(--window-bg); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); display: none; flex-direction: column; z-index: 9999; }
+        .global-chat.active { display: flex; }
+        .global-chat-header { background: var(--header-bg); padding: 10px; border-radius: 8px 8px 0 0; display: flex; justify-content: space-between; align-items: center; }
+        .global-chat-title { font-weight: bold; flex: 1; }
+        .global-chat-close { background: none; border: none; color: var(--text-color); cursor: pointer; font-size: 16px; }
+        
+        /* Start Menu */
+        .start-menu { position: fixed; left: 10px; top: 60px; width: 300px; min-height: 200px; background: var(--window-bg); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); display: none; flex-direction: column; z-index: 9998; max-height: calc(100vh - 80px); }
+        .start-menu.active { display: flex; }
+        .start-menu-header { background: var(--header-bg); padding: 10px; border-radius: 8px 8px 0 0; display: flex; justify-content: space-between; align-items: center; }
+        .start-menu-title { font-weight: bold; }
+        .start-menu-close { background: none; border: none; color: var(--text-color); cursor: pointer; }
+        
+        .start-menu-content { flex: 1; overflow-y: auto; }
+        .start-menu-section { border-bottom: 1px solid var(--border-color); }
+        .start-menu-section:last-child { border-bottom: none; }
+        .start-section-header { background: rgba(74, 144, 226, 0.1); padding: 8px 15px; font-weight: bold; font-size: 12px; color: var(--accent-color); }
+        .start-menu-item { padding: 10px 15px; cursor: pointer; display: flex; align-items: center; gap: 10px; font-size: 14px; }
+        .start-menu-item:hover { background: rgba(255, 255, 255, 0.05); }
+        .start-menu-item.disabled { opacity: 0.5; cursor: not-allowed; }
+        
+        /* File Manager */
+        .file-item { padding: 8px 15px; cursor: pointer; display: flex; align-items: center; gap: 10px; font-size: 12px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .file-item:hover { background: rgba(255, 255, 255, 0.05); }
+        .file-item .file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .file-item .file-size { color: #888; font-size: 10px; }
+        .file-item .file-actions { display: flex; gap: 5px; }
+        .file-action-btn { background: none; border: none; color: var(--accent-color); cursor: pointer; font-size: 10px; padding: 2px 4px; }
+        .file-action-btn:hover { color: white; }
+        
+        /* PDF Processing */
+        .pdf-processor { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 400px; background: var(--window-bg); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.7); z-index: 10001; display: none; }
+        .pdf-processor.active { display: block; }
+        .pdf-processor-header { background: var(--header-bg); padding: 15px; border-radius: 8px 8px 0 0; }
+        .pdf-processor-content { padding: 20px; }
+        .pdf-progress { width: 100%; height: 8px; background: #333; border-radius: 4px; overflow: hidden; margin: 10px 0; }
+        .pdf-progress-bar { height: 100%; background: linear-gradient(90deg, var(--accent-color), var(--success-color)); transition: width 0.3s; }
+        .pdf-stats { font-size: 12px; color: #888; margin: 10px 0; }
+        .pdf-countdown { font-size: 18px; font-weight: bold; color: var(--accent-color); text-align: center; margin: 15px 0; }
+        
+        .button-row { display: flex; gap: 10px; justify-content: flex-end; }
+        
+        /* Mobile responsive adjustments */
+        @media (max-width: 768px) {
+            html, body { padding: 5px; }
+            #controls { top: 5px; left: 5px; gap: 5px; }
+            .control-btn { padding: 8px 12px; font-size: 12px; }
+            .window { min-width: calc(100vw - 40px); max-width: calc(100vw - 20px); min-height: 250px; }
+            .window-content { padding: 10px; }
+            .prompt-area textarea { min-height: 60px; font-size: 14px; }
+            .input-group input { font-size: 14px; }
+            .global-chat { width: calc(100vw - 20px); right: 10px; left: 10px; }
+            .start-menu { width: calc(100vw - 40px); }
+        }
+        
+        @media (max-width: 480px) {
+            .window { min-width: calc(100vw - 20px); max-width: calc(100vw - 10px); }
+            .control-btn { padding: 6px 10px; font-size: 11px; }
+            .window-content { padding: 8px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="app-container">
+        <div id="controls">
+            <button id="startBtn" class="control-btn start">🚀 Start</button>
+            <button id="setupBtn" class="control-btn setup">⚙️ API Setup</button>
+            <button id="newWindowBtn" class="control-btn">➕ Create Window</button>
+            <button id="debugBtn" class="control-btn debug">🐛 Event Debug</button>
+            <button id="globalChatBtn" class="control-btn" style="background-color: #e91e63;">💬 AI Assistant</button>
+        </div>
+        
+        <!-- Start Menu -->
+        <div id="startMenu" class="start-menu">
+            <div class="start-menu-header">
+                <span class="start-menu-title">🚀 Foundry Start Menu</span>
+                <button class="start-menu-close" id="startMenuClose">×</button>
+            </div>
+            <div class="start-menu-content">
+                <div class="start-menu-section">
+                    <div class="start-section-header">📄 FILE MANAGEMENT</div>
+                    <div class="start-menu-item" id="uploadPdfBtn">
+                        <span>📤</span>
+                        <span>Upload PDF Documents</span>
+                    </div>
+                    <div class="start-menu-item" id="viewFilesBtn">
+                        <span>📁</span>
+                        <span>View Stored Files</span>
+                    </div>
+                    <div class="start-menu-item" id="processPdfBtn">
+                        <span>🔄</span>
+                        <span>Process PDF with AI</span>
+                    </div>
+                </div>
+                <div class="start-menu-section">
+                    <div class="start-section-header">⚡ QUICK ACTIONS</div>
+                    <div class="start-menu-item" id="newWindowFromStart">
+                        <span>➕</span>
+                        <span>New Generator Window</span>
+                    </div>
+                    <div class="start-menu-item" id="openChatFromStart">
+                        <span>💬</span>
+                        <span>AI Assistant</span>
+                    </div>
+                    <div class="start-menu-item" id="debugFromStart">
+                        <span>🐛</span>
+                        <span>Event Debug Console</span>
+                    </div>
+                </div>
+                <div class="start-menu-section">
+                    <div class="start-section-header">📚 STORED DOCUMENTS</div>
+                    <div id="filesList">
+                        <div style="padding: 15px; text-align: center; color: #888; font-size: 12px;">
+                            No files uploaded yet
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Global Chat Interface -->
+        <div id="globalChat" class="global-chat">
+            <div class="global-chat-header">
+                <span class="global-chat-title">🤖 AI Assistant</span>
+                <button class="global-chat-close" id="globalChatClose">×</button>
+            </div>
+            <div class="chat-messages" id="globalChatMessages">
+                <div class="chat-message ai">
+                    <div class="sender">AI Assistant</div>
+                    <div>Hello! I'm here to help you brainstorm, refine prompts, and iterate on your components. I can see which window you have focused and provide contextual assistance.</div>
+                </div>
+            </div>
+            <div class="chat-input-area">
+                <textarea id="globalChatInput" class="chat-input" placeholder="Ask me anything about your current window or component ideas..." rows="2"></textarea>
+                <button id="globalChatSend" class="chat-send-btn">Send</button>
+            </div>
+        </div>
+        
+        <!-- PDF Processor Modal -->
+        <div id="pdfProcessor" class="pdf-processor">
+            <div class="pdf-processor-header">
+                <h3 style="margin: 0;">🔄 PDF Processing</h3>
+            </div>
+            <div class="pdf-processor-content">
+                <div id="pdfProcessorStatus">Ready to process...</div>
+                <div class="pdf-progress">
+                    <div class="pdf-progress-bar" id="pdfProgressBar" style="width: 0%;"></div>
+                </div>
+                <div class="pdf-stats" id="pdfStats"></div>
+                <div class="pdf-countdown" id="pdfCountdown"></div>
+                <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+                    <button class="control-btn" id="cancelPdfBtn" style="background: #666;">Cancel</button>
+                    <button class="control-btn" id="startPdfBtn" style="display: none;">Start Processing</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Hidden file input -->
+        <input type="file" id="pdfFileInput" accept=".pdf" multiple style="display: none;">
+    </div>
+
+    <script>
+        (function() {
+            const appContainer = document.getElementById('app-container');
+            const startBtn = document.getElementById('startBtn');
+            const setupBtn = document.getElementById('setupBtn');
+            const newWindowBtn = document.getElementById('newWindowBtn');
+            const debugBtn = document.getElementById('debugBtn');
+            const globalChatBtn = document.getElementById('globalChatBtn');
+            
+            let windowCounter = 0;
+            let highestZ = 100;
+            let activeWindowId = null;
+            let storedFiles = {};
+            let isProcessingPdf = false;
+            
+            const windowCodeCache = {};
+            
+            // Event Bus for Inter-Window Communication
+            const EventBus = {
+                channels: {},
+                
+                subscribe: function(channel, windowId, callback) {
+                    if (!this.channels[channel]) {
+                        this.channels[channel] = {};
+                    }
+                    this.channels[channel][windowId] = callback;
+                    console.log(`🔗 Window ${windowId} subscribed to channel: ${channel}`);
+                },
+                
+                unsubscribe: function(channel, windowId) {
+                    if (this.channels[channel] && this.channels[channel][windowId]) {
+                        delete this.channels[channel][windowId];
+                        console.log(`🔌 Window ${windowId} unsubscribed from channel: ${channel}`);
+                    }
+                },
+                
+                broadcast: function(channel, data) {
+                    console.log(`📡 Broadcasting on channel ${channel}:`, data);
+                    if (this.channels[channel]) {
+                        Object.values(this.channels[channel]).forEach(callback => {
+                            try {
+                                callback(data);
+                            } catch (error) {
+                                console.error('Event bus callback error:', error);
+                            }
+                        });
+                    }
+                },
+                
+                listChannels: function() {
+                    return Object.keys(this.channels);
+                }
+            };
+            
+            // Make EventBus globally available for generated components
+            window.FoundryEventBus = EventBus;
+
+            // File Management System
+            const FileManager = {
+                async uploadFiles(files) {
+                    const results = [];
+                    for (const file of files) {
+                        if (file.type === 'application/pdf') {
+                            const fileId = 'pdf_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                            const content = await this.readPdfFile(file);
+                            
+                            storedFiles[fileId] = {
+                                id: fileId,
+                                name: file.name,
+                                size: file.size,
+                                type: 'pdf',
+                                content: content,
+                                uploadDate: new Date().toISOString(),
+                                tokenCount: this.estimateTokens(content)
+                            };
+                            
+                            results.push(storedFiles[fileId]);
+                        }
+                    }
+                    this.updateFilesList();
+                    return results;
+                },
+                
+                async readPdfFile(file) {
+                    // Simple PDF text extraction (basic implementation)
+                    // In production, you'd use a proper PDF parsing library
+                    return new Promise((resolve) => {
+                        const reader = new FileReader();
+                        reader.onload = function(e) {
+                            // This is a simplified extraction - real PDF parsing would be more complex
+                            const text = e.target.result;
+                            // Basic text extraction from PDF binary
+                            const extractedText = text.replace(/[^\x20-\x7E\n]/g, ' ').replace(/\s+/g, ' ').trim();
+                            resolve(extractedText || `PDF content from ${file.name} (${file.size} bytes)`);
+                        };
+                        reader.readAsText(file);
+                    });
+                },
+                
+                estimateTokens(text) {
+                    // Rough token estimation: ~4 characters per token
+                    return Math.ceil(text.length / 4);
+                },
+                
+                updateFilesList() {
+                    const filesList = document.getElementById('filesList');
+                    const files = Object.values(storedFiles);
+                    
+                    if (files.length === 0) {
+                        filesList.innerHTML = '<div style="padding: 15px; text-align: center; color: #888; font-size: 12px;">No files uploaded yet</div>';
+                        return;
+                    }
+                    
+                    filesList.innerHTML = files.map(file => `
+                        <div class="file-item" data-file-id="${file.id}">
+                            <span>📄</span>
+                            <span class="file-name" title="${file.name}">${file.name}</span>
+                            <span class="file-size">${this.formatFileSize(file.size)}</span>
+                            <div class="file-actions">
+                                <button class="file-action-btn" onclick="FileManager.processFile('${file.id}')">🔄</button>
+                                <button class="file-action-btn" onclick="FileManager.deleteFile('${file.id}')" style="color: #f44336;">🗑️</button>
+                            </div>
+                        </div>
+                    `).join('');
+                },
+                
+                formatFileSize(bytes) {
+                    if (bytes < 1024) return bytes + ' B';
+                    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+                    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+                },
+                
+                deleteFile(fileId) {
+                    if (confirm('Delete this file?')) {
+                        delete storedFiles[fileId];
+                        this.updateFilesList();
+                    }
+                },
+                
+                async processFile(fileId) {
+                    const file = storedFiles[fileId];
+                    if (!file) return;
+                    
+                    await PdfProcessor.processFile(file);
+                }
+            };
+            
+            // PDF Processing with Rate Limiting
+            const PdfProcessor = {
+                RATE_LIMIT: 6000, // tokens per minute
+                
+                async processFile(file) {
+                    if (isProcessingPdf) {
+                        alert('Already processing a PDF. Please wait...');
+                        return;
+                    }
+                    
+                    // Test server connection first
+                    try {
+                        await testServerConnection();
+                    } catch (error) {
+                        alert('Server not available. Please check your server connection.');
+                        return;
+                    }
+                    
+                    this.showProcessor(file);
+                    isProcessingPdf = true;
+                    
+                    try {
+                        await this.processInChunks(file);
+                    } catch (error) {
+                        console.error('PDF processing error:', error);
+                        alert('PDF processing failed: ' + error.message);
+                    } finally {
+                        isProcessingPdf = false;
+                        this.hideProcessor();
+                    }
+                },
+                
+                showProcessor(file) {
+                    const processor = document.getElementById('pdfProcessor');
+                    const status = document.getElementById('pdfProcessorStatus');
+                    const stats = document.getElementById('pdfStats');
+                    
+                    processor.classList.add('active');
+                    status.textContent = `Processing: ${file.name}`;
+                    stats.innerHTML = `
+                        <div>File Size: ${FileManager.formatFileSize(file.size)}</div>
+                        <div>Estimated Tokens: ${file.tokenCount.toLocaleString()}</div>
+                        <div>Rate Limit: ${this.RATE_LIMIT} tokens/minute</div>
+                    `;
+                    
+                    this.startCountdown(file.tokenCount);
+                },
+                
+                hideProcessor() {
+                    document.getElementById('pdfProcessor').classList.remove('active');
+                },
+                
+                startCountdown(totalTokens) {
+                    const estimatedMinutes = Math.ceil(totalTokens / this.RATE_LIMIT);
+                    const countdownEl = document.getElementById('pdfCountdown');
+                    
+                    let remainingSeconds = estimatedMinutes * 60;
+                    
+                    const updateCountdown = () => {
+                        if (remainingSeconds <= 0) {
+                            countdownEl.textContent = 'Processing complete!';
+                            return;
+                        }
+                        
+                        const minutes = Math.floor(remainingSeconds / 60);
+                        const seconds = remainingSeconds % 60;
+                        countdownEl.textContent = `⏱️ ${minutes}:${seconds.toString().padStart(2, '0')} remaining`;
+                        remainingSeconds--;
+                    };
+                    
+                    updateCountdown();
+                    const interval = setInterval(updateCountdown, 1000);
+                    
+                    // Stop countdown when processing is done
+                    setTimeout(() => clearInterval(interval), estimatedMinutes * 60 * 1000);
+                },
+                
+                async processInChunks(file) {
+                    const content = file.content;
+                    const maxChunkSize = Math.floor(this.RATE_LIMIT * 0.8); // Leave some buffer
+                    const chunks = this.splitIntoChunks(content, maxChunkSize);
+                    
+                    const progressBar = document.getElementById('pdfProgressBar');
+                    const results = [];
+                    
+                    for (let i = 0; i < chunks.length; i++) {
+                        const chunk = chunks[i];
+                        const progress = ((i + 1) / chunks.length) * 100;
+                        progressBar.style.width = progress + '%';
+                        
+                        try {
+                            const result = await this.processChunk(chunk, i + 1, chunks.length);
+                            results.push(result);
+                            
+                            // Rate limiting delay
+                            if (i < chunks.length - 1) {
+                                await this.delay(61000); // Wait 61 seconds between chunks
+                            }
+                        } catch (error) {
+                            console.error(`Error processing chunk ${i + 1}:`, error);
+                        }
+                    }
+                    
+                    // Create a new window with the processed results
+                    this.createResultWindow(file, results);
+                },
+                
+                splitIntoChunks(text, maxTokens) {
+                    const chunks = [];
+                    const words = text.split(' ');
+                    let currentChunk = '';
+                    
+                    for (const word of words) {
+                        const testChunk = currentChunk + (currentChunk ? ' ' : '') + word;
+                        if (FileManager.estimateTokens(testChunk) > maxTokens && currentChunk) {
+                            chunks.push(currentChunk);
+                            currentChunk = word;
+                        } else {
+                            currentChunk = testChunk;
+                        }
+                    }
+                    
+                    if (currentChunk) chunks.push(currentChunk);
+                    return chunks;
+                },
+                
+                async processChunk(chunk, chunkNum, totalChunks) {
+                    try {
+                        const response = await fetch('/api/process-pdf', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                chunk: chunk,
+                                chunkNum: chunkNum,
+                                totalChunks: totalChunks
+                            })
+                        });
+
+                        if (!response.ok) {
+                            throw new Error(`Server Error: ${response.status}`);
+                        }
+
+                        const data = await response.json();
+                        return data.analysis;
+                    } catch (error) {
+                        throw new Error(`PDF processing failed: ${error.message}`);
+                    }
+                },
+                
+                createResultWindow(file, results) {
+                    windowCounter++;
+                    const windowId = `pdf-result-${windowCounter}`;
+                    
+                    const windowEl = document.createElement('div');
+                    windowEl.id = windowId;
+                    windowEl.className = 'window focused';
+                    windowEl.style.left = '200px';
+                    windowEl.style.top = '200px';
+                    windowEl.style.width = '700px';
+                    windowEl.style.height = '600px';
+                    windowEl.style.zIndex = ++highestZ;
+                    
+                    const resultsHtml = results.map((result, i) => `
+                        <div style="border-bottom: 1px solid var(--border-color); padding: 15px; margin-bottom: 15px;">
+                            <h4 style="color: var(--accent-color); margin: 0 0 10px 0;">Section ${i + 1}</h4>
+                            <div style="line-height: 1.6;">${result}</div>
+                        </div>
+                    `).join('');
+                    
+                    windowEl.innerHTML = `
+                        <div class="window-header">
+                            <span class="window-title">📄 ${file.name} - Analysis</span>
+                            <div class="window-controls">
+                                <button class="export-btn" title="Export Analysis">📤</button>
+                                <button class="collapse-btn" title="Collapse">▼</button>
+                                <button class="close-btn" title="Close">×</button>
+                            </div>
+                        </div>
+                        <div class="window-content" style="overflow-y: auto;">
+                            <div style="padding: 10px; background: rgba(74, 144, 226, 0.1); border-radius: 4px; margin-bottom: 20px;">
+                                <strong>📊 Analysis Summary</strong><br>
+                                File: ${file.name}<br>
+                                Processed: ${results.length} sections<br>
+                                Total Tokens: ~${file.tokenCount.toLocaleString()}
+                            </div>
+                            ${resultsHtml}
+                        </div>
+                    `;
+                    
+                    appContainer.appendChild(windowEl);
+                    WindowManager.makeDraggable(windowEl);
+                    
+                    // Add basic event listeners
+                    const closeBtn = windowEl.querySelector('.close-btn');
+                    const collapseBtn = windowEl.querySelector('.collapse-btn');
+                    const exportBtn = windowEl.querySelector('.export-btn');
+                    
+                    closeBtn.addEventListener('click', () => windowEl.remove());
+                    collapseBtn.addEventListener('click', () => {
+                        windowEl.classList.toggle('collapsed');
+                        collapseBtn.textContent = windowEl.classList.contains('collapsed') ? '▲' : '▼';
+                    });
+                    exportBtn.addEventListener('click', () => {
+                        const analysisText = results.join('\n\n---\n\n');
+                        const blob = new Blob([analysisText], { type: 'text/plain' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `${file.name}_analysis.txt`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                    });
+                    
+                    windowEl.addEventListener('mousedown', () => WindowManager.focusWindow(windowEl));
+                },
+                
+                delay(ms) {
+                    return new Promise(resolve => setTimeout(resolve, ms));
+                }
+            };
+
+            // Chat System with AI Agency
+            async function sendChatMessage(message, isGlobal = false, windowId = null) {
+                const context = {
+                    activeWindowId: activeWindowId,
+                    windowList: Object.keys(windowCodeCache),
+                    fileCount: Object.keys(storedFiles).length,
+                    windowType: isGlobal ? 'global' : 'window-specific'
+                };
+
+                try {
+                    const response = await fetch('/api/chat', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            messages: [{ role: 'user', content: message }],
+                            context: context
+                        })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`Server Error: ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    const aiResponse = data.choices[0]?.message?.content || "Sorry, I couldn't generate a response.";
+                    
+                    // Check if response is an action command
+                    try {
+                        const actionData = JSON.parse(aiResponse);
+                        if (actionData.action) {
+                            await executeAIAction(actionData);
+                            return "Action executed successfully!";
+                        }
+                    } catch (e) {
+                        // Not JSON, treat as regular response
+                    }
+                    
+                    return aiResponse;
+                } catch (error) {
+                    console.error('Chat error:', error);
+                    return `Sorry, I encountered an error: ${error.message}`;
+                }
+            }
+
+            // AI Action Execution System
+            async function executeAIAction(actionData) {
+                const { action, parameters } = actionData;
+                
+                switch (action) {
+                    case 'CREATE_WINDOW':
+                        WindowManager.createWindow();
+                        break;
+                        
+                    case 'GENERATE_IN_WINDOW':
+                        if (parameters?.windowId && parameters?.prompt) {
+                            const windowEl = document.getElementById(parameters.windowId);
+                            if (windowEl) {
+                                const promptInput = windowEl.querySelector('.prompt-input');
+                                if (promptInput) {
+                                    promptInput.value = parameters.prompt;
+                                    await WindowManager.transformWindow(windowEl, parameters.windowId);
+                                }
+                            }
+                        }
+                        break;
+                        
+                    case 'CLOSE_WINDOW':
+                        if (parameters?.windowId) {
+                            const windowEl = document.getElementById(parameters.windowId);
+                            if (windowEl) {
+                                delete windowCodeCache[parameters.windowId];
+                                windowEl.remove();
+                            }
+                        }
+                        break;
+                        
+                    case 'OPEN_START_MENU':
+                        toggleStartMenu();
+                        break;
+                        
+                    case 'UPLOAD_PDF':
+                        document.getElementById('pdfFileInput').click();
+                        break;
+                        
+                    case 'PROCESS_PDF':
+                        if (parameters?.fileId && storedFiles[parameters.fileId]) {
+                            await PdfProcessor.processFile(storedFiles[parameters.fileId]);
+                        }
+                        break;
+                        
+                    default:
+                        console.warn('Unknown action:', action);
+                }
+            }
+
+            function getWindowPrompt(windowId) {
+                const windowEl = document.getElementById(windowId);
+                if (!windowEl) return '';
+                const promptInput = windowEl.querySelector('.prompt-input');
+                return promptInput ? promptInput.value : '';
+            }
+
+            function addChatMessage(containerId, message, isUser = false) {
+                const container = document.getElementById(containerId);
+                if (!container) return;
+
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `chat-message ${isUser ? 'user' : 'ai'}`;
+                
+                const sender = document.createElement('div');
+                sender.className = 'sender';
+                sender.textContent = isUser ? 'You' : 'AI Assistant';
+                
+                const content = document.createElement('div');
+                content.textContent = message;
+                
+                messageDiv.appendChild(sender);
+                messageDiv.appendChild(content);
+                container.appendChild(messageDiv);
+                container.scrollTop = container.scrollHeight;
+            }
+
+            // Groq API Integration (Now Server-Side)
+            async function getGroqCompletion(userPrompt) {
+                try {
+                    const response = await fetch('/api/generate', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            prompt: userPrompt
+                        })
+                    });
+
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({}));
+                        throw new Error(`Server Error: ${response.status} - ${errorData.error || 'Unknown error'}`);
+                    }
+
+                    const data = await response.json();
+                    return data;
+                } catch (error) {
+                    throw new Error(`Generation failed: ${error.message}`);
+                }
+            }
+
+            async function testServerConnection() {
+                try {
+                    const response = await fetch('/api/health');
+                    if (!response.ok) {
+                        throw new Error(`Server not responding: ${response.status}`);
+                    }
+                    const data = await response.json();
+                    return data.hasApiKey;
+                } catch (error) {
+                    throw new Error(`Connection test failed: ${error.message}`);
+                }
+            }
+
+            const WindowManager = {
+                createSetupWindow: function() {
+                    const windowId = 'setup-window';
+                    
+                    // Remove existing setup window if it exists
+                    const existing = document.getElementById(windowId);
+                    if (existing) {
+                        this.focusWindow(existing);
+                        return;
+                    }
+                    
+                    const windowEl = document.createElement('div');
+                    windowEl.id = windowId;
+                    windowEl.className = 'window focused setup-window';
+                    
+                    // Mobile-responsive positioning
+                    const isMobile = window.innerWidth <= 768;
+                    if (isMobile) {
+                        windowEl.style.left = '10px';
+                        windowEl.style.top = '60px';
+                        windowEl.style.width = 'calc(100vw - 40px)';
+                        windowEl.style.height = 'auto';
+                    } else {
+                        windowEl.style.left = '100px';
+                        windowEl.style.top = '100px';
+                        windowEl.style.width = '500px';
+                        windowEl.style.height = '400px';
+                    }
+                    
+                    windowEl.style.zIndex = ++highestZ;
+
+                    windowEl.innerHTML = `
+                        <div class="window-header">
+                            <span class="window-title">⚙️ API Configuration</span>
+                            <div class="window-controls">
+                                <button class="close-btn" title="Close">×</button>
+                            </div>
+                        </div>
+                        <div class="window-content">
+                            <div class="input-group">
+                                <label for="apiKeyInput">Server Status:</label>
+                                <div style="padding: 8px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: 4px; color: #888;">
+                                    API key is now securely stored on the server
+                                </div>
+                                <small>In v2.1, security is handled server-side. Configure your .env file on the server.</small>
+                            </div>
+                            <div class="button-row">
+                                <button class="control-btn" id="testConnectionBtn">🔗 Test Server</button>
+                                <button class="control-btn" id="saveApiKeyBtn" disabled title="API key configured on server">💾 Server Config</button>
+                            </div>
+                            <div id="setup-status"></div>
+                        </div>
+                    `;
+
+                    appContainer.appendChild(windowEl);
+                    this.makeDraggable(windowEl);
+                    
+                    // Add event listeners for setup window
+                    const closeBtn = windowEl.querySelector('.close-btn');
+                    const testBtn = windowEl.querySelector('#testConnectionBtn');
+                    const saveBtn = windowEl.querySelector('#saveApiKeyBtn');
+                    
+                    closeBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        windowEl.remove();
+                    });
+                    testBtn.addEventListener('click', () => this.testConnection());
+                    saveBtn.addEventListener('click', () => this.saveApiKey());
+                    windowEl.addEventListener('mousedown', () => this.focusWindow(windowEl));
+                },
+
+                testConnection: async function() {
+                    const statusDiv = document.getElementById('setup-status');
+                    
+                    statusDiv.innerHTML = '<div class="status info">Testing server connection...</div>';
+                    
+                    try {
+                        const hasKey = await testServerConnection();
+                        if (hasKey) {
+                            statusDiv.innerHTML = '<div class="status success">✅ Server connection successful! API key is configured on server.</div>';
+                        } else {
+                            statusDiv.innerHTML = '<div class="status error">❌ Server connected but API key not configured on server.</div>';
+                        }
+                    } catch (error) {
+                        statusDiv.innerHTML = `<div class="status error">❌ ${error.message}</div>`;
+                    }
+                },
+
+                saveApiKey: function() {
+                    const statusDiv = document.getElementById('setup-status');
+                    statusDiv.innerHTML = '<div class="status info">ℹ️ In v2.1, the API key is securely stored on the server. Check your server .env file.</div>';
+                },
+
+                createWindow: function() {
+                    windowCounter++;
+                    const windowId = `window-${windowCounter}`;
+                    
+                    const windowEl = document.createElement('div');
+                    windowEl.id = windowId;
+                    windowEl.className = 'window focused';
+                    
+                    // Mobile-responsive positioning and sizing
+                    const isMobile = window.innerWidth <= 768;
+                    if (isMobile) {
+                        windowEl.style.left = '10px';
+                        windowEl.style.top = `${60 + (windowCounter * 20)}px`;
+                        windowEl.style.width = 'calc(100vw - 40px)';
+                        windowEl.style.height = 'auto';
+                        windowEl.style.minHeight = '400px';
+                    } else {
+                        windowEl.style.left = `${150 + (windowCounter * 30)}px`;
+                        windowEl.style.top = `${150 + (windowCounter * 30)}px`;
+                        windowEl.style.width = '600px';
+                        windowEl.style.height = '500px';
+                    }
+                    
+                    windowEl.style.zIndex = ++highestZ;
+
+                    windowEl.innerHTML = `
+                        <div class="window-header">
+                            <span class="window-title">🚀 Generator ${windowCounter}</span>
+                            <div class="window-controls">
+                                <button class="export-btn" title="Export as HTML">📤</button>
+                                <button class="collapse-btn" title="Collapse">▼</button>
+                                <button class="close-btn" title="Close">×</button>
+                            </div>
+                        </div>
+                        <div class="window-content">
+                            <div class="prompt-area">
+                                <label for="prompt-${windowId}">Enter Component Prompt:</label>
+                                <textarea id="prompt-${windowId}" class="prompt-input" placeholder="e.g., 'Create a beautiful animated clock with neon colors' or 'Build a simple calculator with dark theme'"></textarea>
+                                <div style="display: flex; align-items: center; justify-content: flex-end;">
+                                    <button class="generate-btn">✨ Generate Component</button>
+                                    <button class="finalize-btn" style="display: none;">📌 Finalize Window</button>
+                                    <button class="reset-btn" style="display: none;">🔄 Reset to Edit</button>
+                                    <button class="chat-toggle-btn">💬 Chat</button>
+                                </div>
+                            </div>
+                            <div class="chat-panel" id="chat-${windowId}">
+                                <div class="chat-messages" id="chatMessages-${windowId}">
+                                    <div class="chat-message ai">
+                                        <div class="sender">AI Assistant</div>
+                                        <div>Hi! I'm here to help you brainstorm and refine this component. What are you thinking of building?</div>
+                                    </div>
+                                </div>
+                                <div class="chat-input-area">
+                                    <textarea class="chat-input" placeholder="Ask me to refine your prompt, suggest improvements, or brainstorm ideas..." rows="2"></textarea>
+                                    <button class="chat-send-btn">Send</button>
+                                </div>
+                            </div>
+                            <div class="output-container" id="output-${windowId}">
+                                <p style="color: #888; text-align: center; margin-top: 50px;">Your generated component will appear here.<br><br>💡 Tip: Use the chat to brainstorm and refine your idea first!</p>
+                            </div>
+                        </div>
+                    `;
+
+                    appContainer.appendChild(windowEl);
+                    this.makeDraggable(windowEl);
+                    this.addEventListeners(windowEl, windowId);
+                },
+
+                transformWindow: async function(windowEl, windowId) {
+                    const promptInput = windowEl.querySelector('.prompt-input');
+                    const outputContainer = windowEl.querySelector('.output-container');
+                    const generateBtn = windowEl.querySelector('.generate-btn');
+                    
+                    if (!promptInput.value.trim()) {
+                        alert("Please enter a prompt.");
+                        return;
+                    }
+                    
+                    generateBtn.disabled = true;
+                    outputContainer.className = 'output-container loading';
+                    outputContainer.innerHTML = '🤖 Generating your component...';
+
+                    try {
+                        const response = await getGroqCompletion(promptInput.value);
+                        
+                        if (response.fullHTML) {
+                            windowCodeCache[windowId] = response.fullHTML;
+                            
+                            outputContainer.className = 'output-container';
+                            outputContainer.innerHTML = `<iframe srcdoc="${response.fullHTML.replace(/"/g, '&quot;')}" style="width: 100%; height: 100%; border: none; border-radius: 4px;"></iframe>`;
+                            windowEl.querySelector('.window-title').textContent = "✨ Generated Module";
+                            
+                            // Show finalize button after successful generation
+                            const finalizeBtn = windowEl.querySelector('.finalize-btn');
+                            if (finalizeBtn) {
+                                finalizeBtn.style.display = 'inline-block';
+                            }
+                        } else {
+                            throw new Error("Invalid response format from server.");
+                        }
+                    } catch (error) {
+                        console.error("Error during generation:", error);
+                        outputContainer.className = 'output-container';
+                        outputContainer.innerHTML = `<div style="color: var(--error-color); text-align: center; padding: 20px;">
+                            <strong>❌ Generation failed</strong><br><br>
+                            ${error.message}<br><br>
+                            <small>Check server connection and try again.</small>
+                        </div>`;
+                    } finally {
+                        generateBtn.disabled = false;
+                    }
+                },
+                
+                exportWindow: function(windowId) {
+                    const htmlContent = windowCodeCache[windowId];
+                    if (!htmlContent) {
+                        alert("No content has been generated for this window yet.");
+                        return;
+                    }
+                    
+                    const blob = new Blob([htmlContent], { type: 'text/html' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `foundry_component_${windowId}_${Date.now()}.html`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                },
+
+                finalizeWindow: function(windowEl, windowId) {
+                    // Mark window as finalized
+                    windowEl.classList.add('finalized');
+                    
+                    // Update window title
+                    const title = windowEl.querySelector('.window-title');
+                    title.textContent = "📌 Finalized Component";
+                    
+                    // Hide finalize button, show reset button
+                    const finalizeBtn = windowEl.querySelector('.finalize-btn');
+                    const resetBtn = windowEl.querySelector('.reset-btn');
+                    if (finalizeBtn) finalizeBtn.style.display = 'none';
+                    if (resetBtn) resetBtn.style.display = 'inline-block';
+                    
+                    // Make output container take full space
+                    const outputContainer = windowEl.querySelector('.output-container');
+                    if (outputContainer) {
+                        outputContainer.classList.add('finalized');
+                    }
+                },
+
+                resetWindow: function(windowEl, windowId) {
+                    // Remove finalized state
+                    windowEl.classList.remove('finalized');
+                    
+                    // Update window title
+                    const title = windowEl.querySelector('.window-title');
+                    title.textContent = "✨ Generated Module";
+                    
+                    // Show finalize button, hide reset button
+                    const finalizeBtn = windowEl.querySelector('.finalize-btn');
+                    const resetBtn = windowEl.querySelector('.reset-btn');
+                    if (finalizeBtn) finalizeBtn.style.display = 'inline-block';
+                    if (resetBtn) resetBtn.style.display = 'none';
+                    
+                    // Reset output container styling
+                    const outputContainer = windowEl.querySelector('.output-container');
+                    if (outputContainer) {
+                        outputContainer.classList.remove('finalized');
+                    }
+                },
+
+                createDebugWindow: function() {
+                    const windowId = 'debug-window';
+                    
+                    // Remove existing debug window if it exists
+                    const existing = document.getElementById(windowId);
+                    if (existing) {
+                        this.focusWindow(existing);
+                        return;
+                    }
+                    
+                    const windowEl = document.createElement('div');
+                    windowEl.id = windowId;
+                    windowEl.className = 'window focused';
+                    windowEl.style.left = '300px';
+                    windowEl.style.top = '100px';
+                    windowEl.style.zIndex = ++highestZ;
+                    windowEl.style.width = '600px';
+                    windowEl.style.height = '400px';
+
+                    windowEl.innerHTML = `
+                        <div class="window-header">
+                            <span class="window-title">🐛 Event Bus Debug Console</span>
+                            <div class="window-controls">
+                                <button class="close-btn" title="Close">×</button>
+                            </div>
+                        </div>
+                        <div class="window-content">
+                            <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                                <button class="control-btn" onclick="WindowManager.clearDebugLog()">🗑️ Clear Log</button>
+                                <button class="control-btn" onclick="WindowManager.showActiveChannels()">📡 Show Channels</button>
+                            </div>
+                            <div id="debug-log" style="
+                                background: #1a1a1a; 
+                                color: #0f0; 
+                                font-family: 'Courier New', monospace; 
+                                font-size: 12px; 
+                                padding: 10px; 
+                                border-radius: 4px; 
+                                height: 300px; 
+                                overflow-y: auto; 
+                                border: 1px solid var(--border-color);
+                            ">
+                                <div style="color: #888;">🚀 Event Bus Debug Console initialized...</div>
+                                <div style="color: #888;">💡 This console will show all inter-window communications</div>
+                                <div style="color: #888;">📡 Active channels: <span id="channel-count">0</span></div>
+                            </div>
+                        </div>
+                    `;
+
+                    appContainer.appendChild(windowEl);
+                    this.makeDraggable(windowEl);
+                    
+                    // Add event listeners for debug window
+                    const closeBtn = windowEl.querySelector('.close-btn');
+                    closeBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        windowEl.remove();
+                    });
+                    windowEl.addEventListener('mousedown', () => this.focusWindow(windowEl));
+                    
+                    // Hook into EventBus for logging
+                    this.setupEventBusLogging();
+                },
+
+                clearDebugLog: function() {
+                    const debugLog = document.getElementById('debug-log');
+                    if (debugLog) {
+                        debugLog.innerHTML = '<div style="color: #888;">🗑️ Debug log cleared...</div>';
+                    }
+                },
+
+                showActiveChannels: function() {
+                    const channels = EventBus.listChannels();
+                    const debugLog = document.getElementById('debug-log');
+                    const channelCount = document.getElementById('channel-count');
+                    
+                    if (debugLog) {
+                        debugLog.innerHTML += `<div style="color: #4a90e2;">📡 Active Channels (${channels.length}): ${channels.join(', ') || '                transformWindow: async function(windowEl, windowId) {
+                    const promptInput = windowEl.querySelector('.prompt-input');
+                    const outputContainer = windowEl.querySelector('.output-container');
+                    const generateBtn = windowEl.querySelector('.generate-btn');
+                    
+                    if (!promptInput.value.trim()) {
+                        alert("Please enter a prompt.");
+                        return;
+                    }
+                    
+                    generateBtn.disabled = true;
+                    outputContainer.className = 'output-container loading';
+                    outputContainer.innerHTML = '🤖 Generating your component...';
+
+                    try {
+                        const response = await getGroqCompletion(promptInput.value);
+                        
+                        if (response.fullHTML) {
+                            windowCodeCache[windowId] = response.fullHTML;
+                            
+                            outputContainer.className = 'output-container';
+                            outputContainer.innerHTML = `<iframe srcdoc="${response.fullHTML.replace(/"/g, '&quot;')}" style="width: 100'}</div>`;
+                        debugLog.scrollTop = debugLog.scrollHeight;
+                    }
+                    
+                    if (channelCount) {
+                        channelCount.textContent = channels.length;
+                    }
+                },
+
+                setupEventBusLogging: function() {
+                    // Override EventBus methods to add logging
+                    const originalBroadcast = EventBus.broadcast;
+                    const originalSubscribe = EventBus.subscribe;
+                    const originalUnsubscribe = EventBus.unsubscribe;
+                    
+                    EventBus.broadcast = function(channel, data) {
+                        const debugLog = document.getElementById('debug-log');
+                        if (debugLog) {
+                            const timestamp = new Date().toLocaleTimeString();
+                            debugLog.innerHTML += `<div style="color: #ff6b6b;">📤 [${timestamp}] BROADCAST → ${channel}: ${JSON.stringify(data)}</div>`;
+                            debugLog.scrollTop = debugLog.scrollHeight;
+                        }
+                        return originalBroadcast.call(this, channel, data);
+                    };
+                    
+                    EventBus.subscribe = function(channel, windowId, callback) {
+                        const debugLog = document.getElementById('debug-log');
+                        if (debugLog) {
+                            const timestamp = new Date().toLocaleTimeString();
+                            debugLog.innerHTML += `<div style="color: #4ecdc4;">🔗 [${timestamp}] SUBSCRIBE → ${windowId} listening to ${channel}</div>`;
+                            debugLog.scrollTop = debugLog.scrollHeight;
+                        }
+                        return originalSubscribe.call(this, channel, windowId, callback);
+                    };
+                    
+                    EventBus.unsubscribe = function(channel, windowId) {
+                        const debugLog = document.getElementById('debug-log');
+                        if (debugLog) {
+                            const timestamp = new Date().toLocaleTimeString();
+                            debugLog.innerHTML += `<div style="color: #ffa726;">🔌 [${timestamp}] UNSUBSCRIBE → ${windowId} from ${channel}</div>`;
+                            debugLog.scrollTop = debugLog.scrollHeight;
+                        }
+                        return originalUnsubscribe.call(this, channel, windowId);
+                    };
+                },
+
+                addEventListeners: function(windowEl, windowId) {
+                    const closeBtn = windowEl.querySelector('.close-btn');
+                    const collapseBtn = windowEl.querySelector('.collapse-btn');
+                    const generateBtn = windowEl.querySelector('.generate-btn');
+                    const exportBtn = windowEl.querySelector('.export-btn');
+                    const finalizeBtn = windowEl.querySelector('.finalize-btn');
+                    const resetBtn = windowEl.querySelector('.reset-btn');
+                    const chatToggleBtn = windowEl.querySelector('.chat-toggle-btn');
+                    const chatSendBtn = windowEl.querySelector('.chat-send-btn');
+                    const chatInput = windowEl.querySelector('.chat-input');
+
+                    closeBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        delete windowCodeCache[windowId];
+                        windowEl.remove();
+                    });
+                    collapseBtn.addEventListener('click', () => {
+                        windowEl.classList.toggle('collapsed');
+                        collapseBtn.textContent = windowEl.classList.contains('collapsed') ? '▲' : '▼';
+                    });
+                    generateBtn.addEventListener('click', () => this.transformWindow(windowEl, windowId));
+                    exportBtn.addEventListener('click', () => this.exportWindow(windowId));
+                    if (finalizeBtn) {
+                        finalizeBtn.addEventListener('click', () => this.finalizeWindow(windowEl, windowId));
+                    }
+                    if (resetBtn) {
+                        resetBtn.addEventListener('click', () => this.resetWindow(windowEl, windowId));
+                    }
+                    
+                    // Chat functionality - Fixed event listeners
+                    if (chatToggleBtn) {
+                        chatToggleBtn.addEventListener('click', (e) => {
+                            e.preventDefault();
+                            this.toggleWindowChat(windowEl, windowId);
+                        });
+                    }
+                    if (chatSendBtn && chatInput) {
+                        const sendMessage = async () => {
+                            const message = chatInput.value.trim();
+                            if (!message) return;
+                            
+                            chatInput.value = '';
+                            chatSendBtn.disabled = true;
+                            
+                            addChatMessage(`chatMessages-${windowId}`, message, true);
+                            
+                            const response = await sendChatMessage(message, false, windowId);
+                            addChatMessage(`chatMessages-${windowId}`, response, false);
+                            
+                            chatSendBtn.disabled = false;
+                        };
+                        
+                        chatSendBtn.addEventListener('click', sendMessage);
+                        chatInput.addEventListener('keypress', (e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault();
+                                sendMessage();
+                            }
+                        });
+                    }
+                    
+                    windowEl.addEventListener('mousedown', () => {
+                        this.focusWindow(windowEl);
+                        activeWindowId = windowId;
+                    });
+                },
+
+                toggleWindowChat: function(windowEl, windowId) {
+                    const chatPanel = document.getElementById(`chat-${windowId}`);
+                    const chatToggleBtn = windowEl.querySelector('.chat-toggle-btn');
+                    
+                    if (chatPanel && chatToggleBtn) {
+                        const isActive = chatPanel.classList.contains('active');
+                        if (isActive) {
+                            chatPanel.classList.remove('active');
+                            chatToggleBtn.classList.remove('active');
+                            chatToggleBtn.textContent = '💬 Chat';
+                        } else {
+                            chatPanel.classList.add('active');
+                            chatToggleBtn.classList.add('active');
+                            chatToggleBtn.textContent = '💬 Hide Chat';
+                        }
+                    }
+                },
+                
+                makeDraggable: function(el) {
+                    const header = el.querySelector('.window-header');
+                    let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+                    
+                    // Touch support for mobile
+                    const startDrag = (e) => {
+                        e.preventDefault();
+                        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                        pos3 = clientX;
+                        pos4 = clientY;
+                        this.focusWindow(el);
+                    };
+                    
+                    const drag = (e) => {
+                        e.preventDefault();
+                        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                        pos1 = pos3 - clientX;
+                        pos2 = pos4 - clientY;
+                        pos3 = clientX;
+                        pos4 = clientY;
+                        
+                        let newTop = el.offsetTop - pos2;
+                        let newLeft = el.offsetLeft - pos1;
+                        
+                        // Keep window within viewport bounds
+                        const maxLeft = window.innerWidth - el.offsetWidth;
+                        const maxTop = window.innerHeight - el.offsetHeight;
+                        
+                        newLeft = Math.max(0, Math.min(newLeft, maxLeft));
+                        newTop = Math.max(0, Math.min(newTop, maxTop));
+                        
+                        el.style.top = newTop + "px";
+                        el.style.left = newLeft + "px";
+                    };
+                    
+                    const endDrag = () => {
+                        document.onmouseup = null;
+                        document.onmousemove = null;
+                        document.ontouchend = null;
+                        document.ontouchmove = null;
+                    };
+                    
+                    // Mouse events
+                    header.onmousedown = (e) => {
+                        startDrag(e);
+                        document.onmouseup = endDrag;
+                        document.onmousemove = drag;
+                    };
+                    
+                    // Touch events for mobile
+                    header.ontouchstart = (e) => {
+                        startDrag(e);
+                        document.ontouchend = endDrag;
+                        document.ontouchmove = drag;
+                    };
+                },
+                
+                focusWindow: function(el) {
+                    document.querySelectorAll('.window').forEach(w => w.classList.remove('focused'));
+                    el.classList.add('focused');
+                    el.style.zIndex = ++highestZ;
+                }
+            };
+
+            // Global functions
+            window.WindowManager = WindowManager;
+            window.FileManager = FileManager;
+            window.PdfProcessor = PdfProcessor;
+            
+            // Global Chat Functions
+            window.toggleGlobalChat = function() {
+                const globalChat = document.getElementById('globalChat');
+                globalChat.classList.toggle('active');
+            };
+            
+            window.toggleStartMenu = function() {
+                const startMenu = document.getElementById('startMenu');
+                startMenu.classList.toggle('active');
+            };
+
+            // Event listeners
+            startBtn.addEventListener('click', () => {
+                toggleStartMenu();
+            });
+
+            setupBtn.addEventListener('click', () => {
+                WindowManager.createSetupWindow();
+            });
+
+            newWindowBtn.addEventListener('click', () => {
+                WindowManager.createWindow();
+            });
+
+            debugBtn.addEventListener('click', () => {
+                WindowManager.createDebugWindow();
+            });
+
+            globalChatBtn.addEventListener('click', () => {
+                toggleGlobalChat();
+            });
+            
+            // Start Menu Event Listeners
+            document.getElementById('startMenuClose').addEventListener('click', toggleStartMenu);
+            document.getElementById('uploadPdfBtn').addEventListener('click', () => {
+                document.getElementById('pdfFileInput').click();
+                toggleStartMenu();
+            });
+            document.getElementById('viewFilesBtn').addEventListener('click', () => {
+                alert('File manager - feature in development');
+                // Could open a dedicated file manager window
+            });
+            document.getElementById('processPdfBtn').addEventListener('click', () => {
+                const files = Object.values(storedFiles);
+                if (files.length === 0) {
+                    alert('No PDF files uploaded yet. Upload some files first!');
+                } else {
+                    // Show file selection for processing
+                    const fileName = prompt(`Select file to process:\n${files.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}\n\nEnter number:`);
+                    const fileIndex = parseInt(fileName) - 1;
+                    if (fileIndex >= 0 && fileIndex < files.length) {
+                        PdfProcessor.processFile(files[fileIndex]);
+                    }
+                }
+                toggleStartMenu();
+            });
+            document.getElementById('newWindowFromStart').addEventListener('click', () => {
+                WindowManager.createWindow();
+                toggleStartMenu();
+            });
+            document.getElementById('openChatFromStart').addEventListener('click', () => {
+                toggleGlobalChat();
+                toggleStartMenu();
+            });
+            document.getElementById('debugFromStart').addEventListener('click', () => {
+                WindowManager.createDebugWindow();
+                toggleStartMenu();
+            });
+            
+            // File Upload Handler
+            document.getElementById('pdfFileInput').addEventListener('change', async (e) => {
+                const files = Array.from(e.target.files);
+                if (files.length > 0) {
+                    const results = await FileManager.uploadFiles(files);
+                    alert(`Uploaded ${results.length} PDF file(s) successfully!`);
+                }
+                e.target.value = ''; // Reset input
+            });
+            
+            // PDF Processor Event Listeners
+            document.getElementById('cancelPdfBtn').addEventListener('click', () => {
+                PdfProcessor.hideProcessor();
+                isProcessingPdf = false;
+            });
+
+            // Global chat functionality
+            const globalChatSend = document.getElementById('globalChatSend');
+            const globalChatInput = document.getElementById('globalChatInput');
+            const globalChatClose = document.getElementById('globalChatClose');
+
+            // Add close button functionality
+            globalChatClose.addEventListener('click', () => {
+                toggleGlobalChat();
+            });
+
+            const sendGlobalMessage = async () => {
+                const message = globalChatInput.value.trim();
+                if (!message) return;
+
+                globalChatInput.value = '';
+                globalChatSend.disabled = true;
+
+                addChatMessage('globalChatMessages', message, true);
+
+                const response = await sendChatMessage(message, true);
+                addChatMessage('globalChatMessages', response, false);
+
+                globalChatSend.disabled = false;
+            };
+
+            globalChatSend.addEventListener('click', sendGlobalMessage);
+            globalChatInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendGlobalMessage();
+                }
+            });
+
+            // Handle window resize for mobile responsiveness
+            window.addEventListener('resize', () => {
+                const windows = document.querySelectorAll('.window');
+                const isMobile = window.innerWidth <= 768;
+                
+                windows.forEach(win => {
+                    if (isMobile) {
+                        win.style.width = 'calc(100vw - 40px)';
+                        win.style.left = '10px';
+                        // Keep within viewport
+                        if (parseInt(win.style.top) + win.offsetHeight > window.innerHeight) {
+                            win.style.top = Math.max(60, window.innerHeight - win.offsetHeight - 20) + 'px';
+                        }
+                    }
+                });
+            });
+
+            // Show welcome message
+            console.log('🚀 The Foundry v2.1: AI Windowing Exosuit loaded!');
+            console.log('🛡️ Secure Guardian Proxy Architecture');
+            console.log('🤖 Maven AI Assistant with Agency Powers');
+            console.log('📄 PDF Processing System with server-side security');
+            console.log('📡 Event Bus available as window.FoundryEventBus');
+            console.log('🗂️ File Management System ready');
+            console.log('🔧 Ready for advanced AI-human collaboration!');
+
+        })();
+    </script>
+
+</body>
+</html>
